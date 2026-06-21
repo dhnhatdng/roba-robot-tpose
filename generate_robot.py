@@ -1,10 +1,10 @@
 """
-ROBA Robot Humanoid Proxy — T-Pose  (Challenge 3: Roba Robot T-Pose 3D Simple)
+ROBA Robot Humanoid — T-Pose Generator (Challenge 3: Roba Robot T-Pose 3D Simple)
 ================================================================================
-Generates  index.glb  containing:
-  • Coloured PBR geometry (White Armour / Dark Grey Metal / Cyan Glow)
-  • A 15-bone humanoid skeleton (Hips → Spine → Head, shoulders, arms, legs)
-  • Skin-weights so every vertex is bound to one bone  →  fully RIGGED GLB
+Generates:
+  • index.glb       -> [Required] Rigged humanoid character in T-pose
+  • ROBA_rigged.glb -> Rigged version
+  • ROBA_static.glb -> Static version (same geometry, no skeleton or skin weights)
 
 Requirements:
     pip install pygltflib numpy
@@ -13,7 +13,7 @@ Usage:
     python generate_robot.py
 """
 
-import os, math, struct
+import os, math
 import numpy as np
 import pygltflib
 from pygltflib import (
@@ -25,9 +25,8 @@ from pygltflib import (
 )
 
 # ── Colour palette ────────────────────────────────────────────────────────────
-WHITE  = [0.960, 0.960, 0.960, 1.0]   # White Armor
-GREY   = [0.176, 0.176, 0.188, 1.0]   # Dark Grey Metal
-CYAN   = [0.000, 0.863, 1.000, 1.0]   # Cyan Glow
+WHITE  = [0.900, 0.900, 0.900, 1.0]   # White/Light Gray body plating
+CYAN   = [0.000, 0.850, 1.000, 1.0]   # Accent color (Cyan) on joints, chest, visor
 
 # ── Low-level geometry primitives ────────────────────────────────────────────
 
@@ -142,25 +141,32 @@ class Builder:
         m = Material()
         m.pbrMetallicRoughness = pygltflib.PbrMetallicRoughness(
             baseColorFactor=color,
-            metallicFactor =0.4 if color==GREY else 0.1,
-            roughnessFactor=0.3 if color==GREY else 0.6)
+            metallicFactor =0.3,
+            roughnessFactor=0.4)
         i = len(self.g.materials); self.g.materials.append(m); return i
 
-    def mesh(self, pos, nor, idx, mat, ji=None, jw=None):
-        bv_p = self._bv(pos.tobytes(), ARRAY_BUFFER)
-        bv_n = self._bv(nor.tobytes(), ARRAY_BUFFER)
-        bv_i = self._bv(idx.tobytes(), ELEMENT_ARRAY_BUFFER)
-        ap = self._acc(bv_p,len(pos),FLOAT,VEC3, pos.min(0),pos.max(0))
-        an = self._acc(bv_n,len(nor),FLOAT,VEC3)
-        ai = self._acc(bv_i,len(idx),UNSIGNED_SHORT,SCALAR)
-        attr = pygltflib.Attributes(POSITION=ap, NORMAL=an)
-        if ji is not None:
-            bv_ji=self._bv(ji.astype(np.uint8).tobytes(),ARRAY_BUFFER)
-            bv_jw=self._bv(jw.astype(np.float32).tobytes(),ARRAY_BUFFER)
-            attr.JOINTS_0  = self._acc(bv_ji,len(ji),UNSIGNED_BYTE,VEC4)
-            attr.WEIGHTS_0 = self._acc(bv_jw,len(jw),FLOAT,VEC4)
-        prim = Primitive(attributes=attr, indices=ai, material=mat, mode=4)
-        i=len(self.g.meshes); self.g.meshes.append(Mesh(primitives=[prim])); return i
+    def mesh_with_primitives(self, prims_data):
+        # prims_data is a list of tuples: (pos, nor, idx, mat_idx, ji, jw)
+        primitives = []
+        for pos, nor, idx, mat_idx, ji, jw in prims_data:
+            bv_p = self._bv(pos.tobytes(), ARRAY_BUFFER)
+            bv_n = self._bv(nor.tobytes(), ARRAY_BUFFER)
+            bv_i = self._bv(idx.tobytes(), ELEMENT_ARRAY_BUFFER)
+            ap = self._acc(bv_p, len(pos), FLOAT, VEC3, pos.min(0), pos.max(0))
+            an = self._acc(bv_n, len(nor), FLOAT, VEC3)
+            ai = self._acc(bv_i, len(idx), UNSIGNED_SHORT, SCALAR)
+            attr = pygltflib.Attributes(POSITION=ap, NORMAL=an)
+            if ji is not None and jw is not None:
+                bv_ji = self._bv(ji.astype(np.uint8).tobytes(), ARRAY_BUFFER)
+                bv_jw = self._bv(jw.astype(np.float32).tobytes(), ARRAY_BUFFER)
+                attr.JOINTS_0  = self._acc(bv_ji, len(ji), UNSIGNED_BYTE, VEC4)
+                attr.WEIGHTS_0 = self._acc(bv_jw, len(jw), FLOAT, VEC4)
+            prim = Primitive(attributes=attr, indices=ai, material=mat_idx, mode=4)
+            primitives.append(prim)
+        
+        i = len(self.g.meshes)
+        self.g.meshes.append(Mesh(primitives=primitives))
+        return i
 
     def node(self, name, t=(0,0,0), children=None, mesh=None, skin=None):
         n=Node(name=name,translation=list(t))
@@ -182,13 +188,70 @@ class Builder:
         self.g.save_binary(path)
         print(f"[OK] Saved -> {path}")
 
-# ── Robot definition ──────────────────────────────────────────────────────────
+# ── Robot geometry parts definition ──────────────────────────────────────────
 
-def build(out_path):
+def get_geometry_parts(mW, mC):
+    parts = []
+    
+    def bx(w,h,d, tx,ty,tz, m, bi):
+        p,n,i=_box(w,h,d)
+        p+=np.array([tx,ty,tz],dtype=np.float32); parts.append((p,n,i,m,bi))
+    def cy(r,h, tx,ty,tz, m, bi, ax='y'):
+        p,n,i=_cylinder(r,h,axis=ax)
+        p+=np.array([tx,ty,tz],dtype=np.float32); parts.append((p,n,i,m,bi))
+    def sp(r, tx,ty,tz, m, bi):
+        p,n,i=_sphere(r)
+        p+=np.array([tx,ty,tz],dtype=np.float32); parts.append((p,n,i,m,bi))
+
+    # Torso (White body, Cyan chest panel, Cyan spine joint, Cyan pelvis)
+    bx(0.40,0.25,0.50,  0.00, 0.00,1.25, mW, 2)   # Chest
+    bx(0.18,0.03,0.18,  0.00,-0.13,1.25, mC, 2)   # Core/Chest Panel (Cyan)
+    cy(0.08,0.15,       0.00, 0.00,0.925,mC, 1)   # Spine joint (Cyan)
+    bx(0.32,0.20,0.12,  0.00, 0.00,0.79, mC, 0)   # Pelvis (Cyan)
+
+    # Head (White sphere, Cyan neck/ears/visor)
+    cy(0.05,0.08,       0.00, 0.00,1.54, mC, 3,'y')# Neck
+    sp(0.15,            0.00, 0.00,1.68, mW, 4)    # Head sphere
+    bx(0.20,0.05,0.06,  0.00,-0.13,1.70, mC, 4)   # Visor (Cyan)
+    cy(0.02,0.05,       0.16, 0.00,1.68, mC, 4,'x')# L ear
+    cy(0.02,0.05,      -0.16, 0.00,1.68, mC, 4,'x')# R ear
+
+    # Left arm
+    sp(0.06,            0.25, 0.00,1.35, mC, 5)   # Shoulder
+    cy(0.045,0.25,      0.425,0.00,1.35, mW, 5,'x')# UpperArm
+    sp(0.05,            0.58, 0.00,1.35, mC, 6)   # Elbow
+    cy(0.038,0.22,      0.72, 0.00,1.35, mC, 6,'x')# Forearm
+    bx(0.06,0.06,0.02,  0.85, 0.00,1.35, mC, 7)   # Hand
+
+    # Right arm
+    sp(0.06,           -0.25, 0.00,1.35, mC, 8)   # Shoulder
+    cy(0.045,0.25,     -0.425,0.00,1.35, mW, 8,'x')# UpperArm
+    sp(0.05,           -0.58, 0.00,1.35, mC, 9)   # Elbow
+    cy(0.038,0.22,     -0.72, 0.00,1.35, mC, 9,'x')# Forearm
+    bx(0.06,0.06,0.02, -0.85, 0.00,1.35, mC,10)   # Hand
+
+    # Left leg
+    sp(0.06,            0.12, 0.00,0.70, mC,11)   # Hip
+    cy(0.055,0.30,      0.12, 0.00,0.50, mW,11)   # UpperLeg
+    sp(0.05,            0.12, 0.00,0.32, mC,12)   # Knee
+    cy(0.045,0.32,      0.12, 0.00,0.12, mC,12)   # LowerLeg
+    bx(0.08,0.16,0.04,  0.12,-0.04,-0.06,mC,12)   # Foot
+
+    # Right leg
+    sp(0.06,           -0.12, 0.00,0.70, mC,13)   # Hip
+    cy(0.055,0.30,     -0.12, 0.00,0.50, mW,13)   # UpperLeg
+    sp(0.05,           -0.12, 0.00,0.32, mC,14)   # Knee
+    cy(0.045,0.32,     -0.12, 0.00,0.12, mC,14)   # LowerLeg
+    bx(0.08,0.16,0.04, -0.12,-0.04,-0.06,mC,14)   # Foot
+
+    return parts
+
+# ── Build methods ─────────────────────────────────────────────────────────────
+
+def build_rigged(out_path):
     b = Builder()
-    mW = b.mat(WHITE); mG = b.mat(GREY); mC = b.mat(CYAN)
+    mW = b.mat(WHITE); mC = b.mat(CYAN)
 
-    # ── Bone world positions (T-pose) ────────────────────────────────────────
     BW = [
         np.array([ 0.00, 0, 0.79 ]),   # 0  Hips
         np.array([ 0.00, 0, 0.925]),   # 1  Spine
@@ -219,7 +282,7 @@ def build(out_path):
         lt = (BW[i]-BW[p]).tolist() if p!=-1 else BW[i].tolist()
         bone_ni.append(b.node(name, t=lt))
 
-    # Wire children
+    # Wire bone hierarchy
     for i,p in enumerate(PARENT):
         if p!=-1:
             pn=b.g.nodes[bone_ni[p]]
@@ -232,87 +295,98 @@ def build(out_path):
         m=np.eye(4,dtype=np.float32); m[3,:3]=-wp; ibms.append(m)
     skin_i = b.skin("Humanoid", bone_ni, ibms)
 
-    # ── Geometry parts: (shape_fn, offset_xyz, mat, bone_idx) ────────────────
-    parts=[]
+    # Get body parts
+    parts = get_geometry_parts(mW, mC)
 
-    def bx(w,h,d, tx,ty,tz, m, bi):
-        p,n,i=_box(w,h,d)
-        p+=np.array([tx,ty,tz],dtype=np.float32); parts.append((p,n,i,m,bi))
-    def cy(r,h, tx,ty,tz, m, bi, ax='y'):
-        p,n,i=_cylinder(r,h,axis=ax)
-        p+=np.array([tx,ty,tz],dtype=np.float32); parts.append((p,n,i,m,bi))
-    def sp(r, tx,ty,tz, m, bi):
-        p,n,i=_sphere(r)
-        p+=np.array([tx,ty,tz],dtype=np.float32); parts.append((p,n,i,m,bi))
+    # Merge primitives grouped by material
+    prims_by_mat = {}
+    for pos, nor, idx, mat_idx, bi in parts:
+        if mat_idx not in prims_by_mat:
+            prims_by_mat[mat_idx] = {'pos':[], 'nor':[], 'idx':[], 'ji':[], 'jw':[], 'off':0}
+        
+        entry = prims_by_mat[mat_idx]
+        n = len(pos)
+        ji = np.zeros((n,4), dtype=np.uint8); ji[:,0] = bi
+        jw = np.zeros((n,4), dtype=np.float32); jw[:,0] = 1.0
+        
+        entry['pos'].append(pos)
+        entry['nor'].append(nor)
+        entry['idx'].append(idx + entry['off'])
+        entry['ji'].append(ji)
+        entry['jw'].append(jw)
+        entry['off'] += n
 
-    # Torso
-    bx(0.40,0.25,0.50,  0.00, 0.00,1.25, mW, 2)   # Chest
-    bx(0.18,0.03,0.18,  0.00,-0.13,1.25, mC, 2)   # Core (Cyan)
-    cy(0.08,0.15,       0.00, 0.00,0.925,mG, 1)   # Spine joint
-    bx(0.32,0.20,0.12,  0.00, 0.00,0.79, mW, 0)   # Pelvis
+    # Build GLB mesh primitives
+    prims_data = []
+    for mat_idx, data in prims_by_mat.items():
+        pos_merged = np.concatenate(data['pos'])
+        nor_merged = np.concatenate(data['nor'])
+        idx_merged = np.concatenate(data['idx'])
+        ji_merged = np.concatenate(data['ji'])
+        jw_merged = np.concatenate(data['jw'])
+        prims_data.append((pos_merged, nor_merged, idx_merged, mat_idx, ji_merged, jw_merged))
 
-    # Head
-    cy(0.05,0.08,       0.00, 0.00,1.54, mG, 3,'y')# Neck
-    sp(0.15,            0.00, 0.00,1.68, mW, 4)    # Head sphere
-    bx(0.20,0.05,0.06,  0.00,-0.13,1.70, mC, 4)   # Visor (Cyan)
-    cy(0.02,0.05,       0.16, 0.00,1.68, mG, 4,'x')# L ear
-    cy(0.02,0.05,      -0.16, 0.00,1.68, mG, 4,'x')# R ear
+    mesh_i = b.mesh_with_primitives(prims_data)
 
-    # Left arm
-    sp(0.06,            0.25, 0.00,1.35, mG, 5)
-    cy(0.045,0.25,      0.425,0.00,1.35, mW, 5,'x')
-    sp(0.05,            0.58, 0.00,1.35, mG, 6)
-    cy(0.038,0.22,      0.72, 0.00,1.35, mW, 6,'x')
-    bx(0.06,0.06,0.02,  0.85, 0.00,1.35, mG, 7)
-
-    # Right arm
-    sp(0.06,           -0.25, 0.00,1.35, mG, 8)
-    cy(0.045,0.25,     -0.425,0.00,1.35, mW, 8,'x')
-    sp(0.05,           -0.58, 0.00,1.35, mG, 9)
-    cy(0.038,0.22,     -0.72, 0.00,1.35, mW, 9,'x')
-    bx(0.06,0.06,0.02, -0.85, 0.00,1.35, mG,10)
-
-    # Left leg
-    sp(0.06,            0.12, 0.00,0.70, mG,11)
-    cy(0.055,0.30,      0.12, 0.00,0.50, mW,11)
-    sp(0.05,            0.12, 0.00,0.32, mG,12)
-    cy(0.045,0.32,      0.12, 0.00,0.12, mW,12)
-    bx(0.08,0.16,0.04,  0.12,-0.04,-0.06,mG,12)
-
-    # Right leg
-    sp(0.06,           -0.12, 0.00,0.70, mG,13)
-    cy(0.055,0.30,     -0.12, 0.00,0.50, mW,13)
-    sp(0.05,           -0.12, 0.00,0.32, mG,14)
-    cy(0.045,0.32,     -0.12, 0.00,0.12, mW,14)
-    bx(0.08,0.16,0.04, -0.12,-0.04,-0.06,mG,14)
-
-    # ── Merge into one skinned mesh ───────────────────────────────────────────
-    apos,anor,aidx,aji,ajw=[],[],[],[],[]
-    off=0
-    for pos,nor,idx,mat,bi in parts:
-        n=len(pos)
-        ji=np.zeros((n,4),dtype=np.uint8);  ji[:,0]=bi
-        jw=np.zeros((n,4),dtype=np.float32);jw[:,0]=1.0
-        apos.append(pos); anor.append(nor)
-        aidx.append(idx+off); aji.append(ji); ajw.append(jw)
-        off+=n
-
-    mpos=np.concatenate(apos); mnor=np.concatenate(anor)
-    midx=np.concatenate(aidx); mji =np.concatenate(aji)
-    mjw =np.concatenate(ajw)
-
-    mesh_i = b.mesh(mpos, mnor, midx, mW, mji, mjw)
-
-    # ── Scene graph ───────────────────────────────────────────────────────────
-    mesh_node = b.node("Robot_Mesh", mesh=mesh_i, skin=skin_i)
-    root_node = b.node("Armature",
-                       children=[bone_ni[0], mesh_node])
-    b.g.scenes[0].nodes=[root_node]
+    # Scene graph connection
+    mesh_node = b.node("ROBA_Robot_Rigged_Mesh", mesh=mesh_i, skin=skin_i)
+    root_node = b.node("Armature", children=[bone_ni[0], mesh_node])
+    b.g.scenes[0].nodes = [root_node]
 
     b.save(out_path)
 
 
-if __name__=="__main__":
-    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.glb")
-    print("Building rigged ROBA humanoid T-pose...")
-    build(out)
+def build_static(out_path):
+    b = Builder()
+    mW = b.mat(WHITE); mC = b.mat(CYAN)
+
+    parts = get_geometry_parts(mW, mC)
+
+    # Merge primitives grouped by material (no joint bindings needed)
+    prims_by_mat = {}
+    for pos, nor, idx, mat_idx, _ in parts:
+        if mat_idx not in prims_by_mat:
+            prims_by_mat[mat_idx] = {'pos':[], 'nor':[], 'idx':[], 'off':0}
+        
+        entry = prims_by_mat[mat_idx]
+        n = len(pos)
+        entry['pos'].append(pos)
+        entry['nor'].append(nor)
+        entry['idx'].append(idx + entry['off'])
+        entry['off'] += n
+
+    # Build GLB mesh primitives without skin weight attributes
+    prims_data = []
+    for mat_idx, data in prims_by_mat.items():
+        pos_merged = np.concatenate(data['pos'])
+        nor_merged = np.concatenate(data['nor'])
+        idx_merged = np.concatenate(data['idx'])
+        prims_data.append((pos_merged, nor_merged, idx_merged, mat_idx, None, None))
+
+    mesh_i = b.mesh_with_primitives(prims_data)
+
+    # Scene graph connection for static (direct layout)
+    mesh_node = b.node("ROBA_Robot_Static_Mesh", mesh=mesh_i)
+    b.g.scenes[0].nodes = [mesh_node]
+
+    b.save(out_path)
+
+
+if __name__ == "__main__":
+    out_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 1. Output index.glb (required preview - rigged)
+    print("Building rigged ROBA humanoid T-pose (index.glb)...")
+    build_rigged(os.path.join(out_dir, "index.glb"))
+    
+    # 2. Output ROBA_rigged.glb
+    print("Building rigged ROBA humanoid T-pose (ROBA_rigged.glb)...")
+    build_rigged(os.path.join(out_dir, "ROBA_rigged.glb"))
+    
+    # 3. Output ROBA_static.glb
+    print("Building static ROBA humanoid T-pose (ROBA_static.glb)...")
+    build_static(os.path.join(out_dir, "ROBA_static.glb"))
+    
+    print("\n* All GLB models generated successfully!")
+    print("* Note: To obtain FBX versions, run the included Blender script:")
+    print("  blender --background --python roba_robot_blender_script.py\n")

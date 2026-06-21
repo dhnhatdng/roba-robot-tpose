@@ -65,10 +65,8 @@ HEAD_Z    = NECK_Z   + NECK_H + HEAD_H * 0.5  # tâm đầu
 SHOULDER_Z = TORSO_Z + TORSO_H * 0.87
 
 # ── Màu sắc ──────────────────────────────────────────────────────────────────
-ROBA_BLUE   = (0.10, 0.45, 0.95, 1.0)   # thân chính
-ROBA_GREY   = (0.55, 0.58, 0.62, 1.0)   # khớp / cổ
-ROBA_ACCENT = (0.95, 0.65, 0.10, 1.0)   # tay / visor / bàn chân
-
+ROBA_WHITE  = (0.90, 0.90, 0.90, 1.0)   # Thân chính (Light gray / White plating)
+ROBA_CYAN   = (0.00, 0.85, 1.00, 1.0)   # Accent color (Cyan) trên các khớp, ngực, visor
 
 # ────────────────────────────────────────────────────────────────────────────
 # 2. HÀM TẠO HÌNH HỌC
@@ -83,9 +81,9 @@ def make_material(name, rgba):
         bsdf.inputs["Metallic"].default_value   = 0.3
     return mat
 
-mat_body   = make_material("ROBA_Body",   ROBA_BLUE)
-mat_joint  = make_material("ROBA_Joint",  ROBA_GREY)
-mat_accent = make_material("ROBA_Accent", ROBA_ACCENT)
+mat_body   = make_material("ROBA_Body",   ROBA_WHITE)
+mat_joint  = make_material("ROBA_Joint",  ROBA_CYAN)
+mat_accent = make_material("ROBA_Accent", ROBA_CYAN)
 
 
 def add_box(name, size, location, mat=None):
@@ -167,6 +165,11 @@ parts.append(add_box("Torso",
                       (SHOULDER_W * 0.90, HEAD_H * 0.88, TORSO_H),
                       (0, 0, TORSO_Z + TORSO_H / 2),
                       mat_body))
+# Chest Panel phát sáng (Accent color) ở mặt trước ngực (-Y)
+parts.append(add_box("ChestPanel",
+                      (SHOULDER_W * 0.40, HEAD_H * 0.05, TORSO_H * 0.50),
+                      (0, -(HEAD_H * 0.44 + 0.01), TORSO_Z + TORSO_H * 0.6),
+                      mat_accent))
 
 # ── KHUNG CHẬU ───────────────────────────────────────────────────────────────
 parts.append(add_box("Pelvis",
@@ -392,11 +395,11 @@ static_copy.select_set(True)
 bpy.context.view_layer.objects.active = static_copy
 
 bpy.ops.export_scene.gltf(
-    filepath=os.path.join(out_dir, "ROBA_Robot_Static.glb"),
+    filepath=os.path.join(out_dir, "ROBA_static.glb"),
     use_selection=True, export_apply=True,
 )
 bpy.ops.export_scene.fbx(
-    filepath=os.path.join(out_dir, "ROBA_Robot_Static.fbx"),
+    filepath=os.path.join(out_dir, "ROBA_static.fbx"),
     use_selection=True, apply_unit_scale=True,
 )
 
@@ -407,14 +410,14 @@ robot_mesh.select_set(True)
 bpy.context.view_layer.objects.active = armature_obj
 
 bpy.ops.export_scene.gltf(
-    filepath=os.path.join(out_dir, "ROBA_Robot_Rigged.glb"),
+    filepath=os.path.join(out_dir, "ROBA_rigged.glb"),
     use_selection=True, export_apply=True,
 )
 bpy.ops.export_scene.fbx(
-    filepath=os.path.join(out_dir, "ROBA_Robot_Rigged.fbx"),
+    filepath=os.path.join(out_dir, "ROBA_rigged.fbx"),
     use_selection=True, add_leaf_bones=False, apply_unit_scale=True,
 )
 
 print("=== HOAN TAT ===")
-print(f"  ROBA_Robot_Static.glb/.fbx  (geometry tinh, khong armature)")
-print(f"  ROBA_Robot_Rigged.glb/.fbx  (co armature T-pose, skin weights)")
+print(f"  ROBA_static.glb/.fbx  (geometry tinh, khong armature)")
+print(f"  ROBA_rigged.glb/.fbx  (co armature T-pose, skin weights)")
