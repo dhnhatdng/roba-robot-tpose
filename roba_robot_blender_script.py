@@ -147,123 +147,126 @@ HALF_PI = math.pi / 2    # 90° — xoay cylinder thành nằm ngang theo X
 parts = []
 
 # ── ĐẦU ──────────────────────────────────────────────────────────────────────
-parts.append(add_sphere("Head", HEAD_H * 0.5, (0, 0, HEAD_Z), mat_body))
+parts.append(add_sphere("Head", 0.14, (0, 0, HEAD_Z), mat_body))
 # Visor mắt — nằm phía trước (-Y), ngay tâm đầu
 parts.append(add_box("Visor",
-                      (HEAD_H * 0.55, HEAD_H * 0.12, HEAD_H * 0.22),
-                      (0, -(HEAD_H * 0.5 - HEAD_H * 0.05), HEAD_Z),
+                      (0.18, 0.06, 0.16),
+                      (0, -0.09, 1.66),
                       mat_accent))
 
 # ── CỔ ───────────────────────────────────────────────────────────────────────
 parts.append(add_cylinder("Neck",
-                            LIMB_R * 0.8, NECK_H,
-                            (0, 0, NECK_Z + NECK_H / 2),  # dọc Z
+                            0.045, 0.10,
+                            (0, 0, 1.54),  # dọc Z
                             mat=mat_joint))
 
 # ── THÂN ─────────────────────────────────────────────────────────────────────
-parts.append(add_box("Torso",
-                      (SHOULDER_W * 0.90, HEAD_H * 0.88, TORSO_H),
-                      (0, 0, TORSO_Z + TORSO_H / 2),
+# Upper Chest
+parts.append(add_box("Torso_Upper",
+                      (0.38, 0.24, 0.28),
+                      (0, 0, 1.32),
                       mat_body))
-# Chest Panel phát sáng (Accent color) ở mặt trước ngực (-Y)
-parts.append(add_box("ChestPanel",
-                      (SHOULDER_W * 0.40, HEAD_H * 0.05, TORSO_H * 0.50),
-                      (0, -(HEAD_H * 0.44 + 0.01), TORSO_Z + TORSO_H * 0.6),
-                      mat_accent))
+# Lower Chest/Belly
+parts.append(add_box("Torso_Lower",
+                      (0.32, 0.20, 0.22),
+                      (0, 0, 1.10),
+                      mat_body))
+# Waist cylinder (Cyan)
+parts.append(add_cylinder("Waist",
+                            0.07, 0.12,
+                            (0, 0, 0.925),
+                            mat=mat_joint))
 
 # ── KHUNG CHẬU ───────────────────────────────────────────────────────────────
 parts.append(add_box("Pelvis",
-                      (HIP_W * 1.4, HEAD_H * 0.82, PELVIS_H),
-                      (0, 0, PELVIS_Z + PELVIS_H / 2),
+                      (0.32, 0.18, 0.12),
+                      (0, 0, 0.79),
                       mat_joint))
 
 # ── TAY — T-POSE (duỗi thẳng dọc trục X) ────────────────────────────────────
-#
-#   sign = +1  → Cánh tay TRÁI  (theo hướng +X từ gốc)
-#   sign = -1  → Cánh tay PHẢI (theo hướng -X từ gốc)
-#
-#   Cylinder mặc định dọc Z; rotation=(0, pi/2, 0) xoay nó thành dọc X.
-#   Sau khi xoay: cylinder kéo dài đều ra 2 phía trên trục X,
-#   đặt tâm tại upper_arm_cx = shoulder_x ± UPPER_ARM_L/2
-#
 for side, sign in (("L", +1), ("R", -1)):
-    # ── Cánh tay trên (upper arm) ────────────────────────────────────────────
-    shoulder_x   = sign * SHOULDER_W / 2           # tâm khớp vai
-    upper_arm_cx = shoulder_x + sign * UPPER_ARM_L / 2  # tâm đoạn trên
+    # Khớp vai (Shoulder)
+    parts.append(add_sphere(
+        f"Shoulder_{side}",
+        0.055,
+        (sign * 0.25, 0, 1.35),
+        mat_joint
+    ))
 
+    # Cánh tay trên (upper arm)
     parts.append(add_cylinder(
         f"UpperArm_{side}",
-        LIMB_R,             # bán kính
-        UPPER_ARM_L,        # chiều dài
-        (upper_arm_cx, 0, SHOULDER_Z),
+        0.04,             # bán kính
+        0.24,             # chiều dài
+        (sign * 0.40, 0, 1.35),
         rotation=(0, HALF_PI, 0),   # ← xoay để nằm ngang theo X
         mat=mat_body
     ))
 
-    # ── Khuỷu tay (elbow joint) — hình cầu nhỏ ───────────────────────────────
-    elbow_x = shoulder_x + sign * UPPER_ARM_L
+    # Khuỷu tay (elbow joint)
     parts.append(add_sphere(
         f"Elbow_{side}",
-        LIMB_R * 1.05,
-        (elbow_x, 0, SHOULDER_Z),
+        0.048,
+        (sign * 0.58, 0, 1.35),
         mat_joint
     ))
 
-    # ── Cánh tay dưới (forearm) ───────────────────────────────────────────────
-    lower_arm_cx = elbow_x + sign * LOWER_ARM_L / 2
-
+    # Cánh tay dưới (forearm)
     parts.append(add_cylinder(
         f"LowerArm_{side}",
-        LIMB_R * 0.85,
-        LOWER_ARM_L,
-        (lower_arm_cx, 0, SHOULDER_Z),
-        rotation=(0, HALF_PI, 0),   # ← cùng hướng X
+        0.035,
+        0.22,
+        (sign * 0.72, 0, 1.35),
+        rotation=(0, HALF_PI, 0),
         mat=mat_joint
     ))
 
-    # ── Bàn tay ───────────────────────────────────────────────────────────────
-    wrist_x = elbow_x + sign * LOWER_ARM_L
-    hand_cx = wrist_x + sign * HAND_L / 2
-
+    # Bàn tay (Hand)
     parts.append(add_box(
         f"Hand_{side}",
-        (HAND_L, LIMB_R * 1.5, LIMB_R * 1.0),   # rộng theo X, mỏng theo Z
-        (hand_cx, 0, SHOULDER_Z),
+        (0.06, 0.08, 0.016),
+        (sign * 0.85, 0, 1.35),
         mat_accent
     ))
 
+    # Ngón tay
+    parts.append(add_cylinder(f"Finger1_{side}", 0.007, 0.05, (sign * 0.89, 0.02, 1.35), rotation=(0, HALF_PI, 0), mat=mat_body))
+    parts.append(add_cylinder(f"Finger2_{side}", 0.007, 0.05, (sign * 0.89, 0.00, 1.35), rotation=(0, HALF_PI, 0), mat=mat_body))
+    parts.append(add_cylinder(f"Finger3_{side}", 0.007, 0.05, (sign * 0.89, -0.02, 1.35), rotation=(0, HALF_PI, 0), mat=mat_body))
+    parts.append(add_cylinder(f"Thumb_{side}", 0.007, 0.04, (sign * 0.85, 0.00, 1.31), mat=mat_body)) # vertical along Z
+
 # ── CHÂN — thẳng đứng (dọc trục Z, không cần xoay) ──────────────────────────
 for side, sign in (("L", +1), ("R", -1)):
-    hip_x = sign * HIP_W / 2
+    # Hông
+    parts.append(add_sphere(f"HipJoint_{side}", 0.055, (sign * 0.12, 0, 0.70), mat_joint))
 
     # Đùi (upper leg)
-    upper_leg_cz = PELVIS_Z - UPPER_LEG_L / 2
     parts.append(add_cylinder(
         f"UpperLeg_{side}",
-        LIMB_R * 1.1, UPPER_LEG_L,
-        (hip_x, 0, upper_leg_cz),   # dọc Z, không xoay
+        0.05, 0.28,
+        (sign * 0.12, 0, 0.51),
         mat=mat_body
     ))
 
     # Đầu gối (knee joint)
-    knee_z = PELVIS_Z - UPPER_LEG_L
-    parts.append(add_sphere(f"Knee_{side}", LIMB_R * 1.05, (hip_x, 0, knee_z), mat_joint))
+    parts.append(add_sphere(f"Knee_{side}", 0.048, (sign * 0.12, 0, 0.32), mat_joint))
 
     # Bắp chân (lower leg)
-    lower_leg_cz = knee_z - LOWER_LEG_L / 2
     parts.append(add_cylinder(
         f"LowerLeg_{side}",
-        LIMB_R * 0.95, LOWER_LEG_L,
-        (hip_x, 0, lower_leg_cz),
+        0.04, 0.28,
+        (sign * 0.12, 0, 0.16),
         mat=mat_joint
     ))
 
+    # Cổ chân
+    parts.append(add_sphere(f"Ankle_{side}", 0.035, (sign * 0.12, 0, 0.00), mat_joint))
+
     # Bàn chân
-    ankle_z = knee_z - LOWER_LEG_L
     parts.append(add_box(
         f"Foot_{side}",
-        (LIMB_R * 2.2, FOOT_L, LIMB_R * 0.9),
-        (hip_x, FOOT_L * 0.25, ankle_z - LIMB_R * 0.45),
+        (0.07, 0.16, 0.03),
+        (sign * 0.12, 0.04, -0.04),
         mat_accent
     ))
 

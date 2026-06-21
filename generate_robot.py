@@ -190,6 +190,8 @@ class Builder:
 
 # ── Robot geometry parts definition ──────────────────────────────────────────
 
+# ── Robot geometry parts definition ──────────────────────────────────────────
+
 def get_geometry_parts(mW, mC):
     parts = []
     
@@ -203,46 +205,56 @@ def get_geometry_parts(mW, mC):
         p,n,i=_sphere(r)
         p+=np.array([tx,ty,tz],dtype=np.float32); parts.append((p,n,i,m,bi))
 
-    # Torso (White body, Cyan chest panel, Cyan spine joint, Cyan pelvis)
-    bx(0.40,0.25,0.50,  0.00, 0.00,1.25, mW, 2)   # Chest
-    bx(0.18,0.03,0.18,  0.00,-0.13,1.25, mC, 2)   # Core/Chest Panel (Cyan)
-    cy(0.08,0.15,       0.00, 0.00,0.925,mC, 1)   # Spine joint (Cyan)
-    bx(0.32,0.20,0.12,  0.00, 0.00,0.79, mC, 0)   # Pelvis (Cyan)
+    # Torso (White upper/lower chest, Cyan waist, Cyan pelvis) - Unitree H1 style
+    bx(0.38,0.24,0.28,  0.00, 0.00,1.32, mW, 2)   # Upper Chest
+    bx(0.32,0.20,0.22,  0.00, 0.00,1.10, mW, 2)   # Lower Chest/Belly
+    cy(0.07,0.12,       0.00, 0.00,0.925,mC, 1)   # Waist cylinder (Cyan)
+    bx(0.32,0.18,0.12,  0.00, 0.00,0.79, mC, 0)   # Pelvis (Cyan)
 
-    # Head (White sphere, Cyan neck/ears/visor)
-    cy(0.05,0.08,       0.00, 0.00,1.54, mC, 3,'y')# Neck
-    sp(0.15,            0.00, 0.00,1.68, mW, 4)    # Head sphere
-    bx(0.20,0.05,0.06,  0.00,-0.13,1.70, mC, 4)   # Visor (Cyan)
-    cy(0.02,0.05,       0.16, 0.00,1.68, mC, 4,'x')# L ear
-    cy(0.02,0.05,      -0.16, 0.00,1.68, mC, 4,'x')# R ear
+    # Head (White helmet, Cyan face visor & neck) - Unitree H1 style
+    cy(0.045,0.10,      0.00, 0.00,1.54, mC, 3,'y')# Neck (Cyan)
+    sp(0.14,            0.00, 0.00,1.68, mW, 4)    # Head sphere (White)
+    bx(0.18,0.06,0.16,  0.00,-0.09,1.66, mC, 4)   # Face Visor/Shield (Cyan)
 
-    # Left arm
-    sp(0.06,            0.25, 0.00,1.35, mC, 5)   # Shoulder
-    cy(0.045,0.25,      0.425,0.00,1.35, mW, 5,'x')# UpperArm
-    sp(0.05,            0.58, 0.00,1.35, mC, 6)   # Elbow
-    cy(0.038,0.22,      0.72, 0.00,1.35, mC, 6,'x')# Forearm
-    bx(0.06,0.06,0.02,  0.85, 0.00,1.35, mC, 7)   # Hand
+    # Left arm (White segments, Cyan joints & hand/fingers)
+    sp(0.055,           0.25, 0.00,1.35, mC, 5)   # Shoulder
+    cy(0.04,0.24,       0.40, 0.00,1.35, mW, 5,'x')# UpperArm
+    sp(0.048,           0.58, 0.00,1.35, mC, 6)   # Elbow
+    cy(0.035,0.22,      0.72, 0.00,1.35, mW, 6,'x')# Forearm
+    bx(0.06,0.08,0.016, 0.85, 0.00,1.35, mC, 7)   # Hand palm
+    # Left fingers
+    cy(0.007,0.05,      0.89, 0.02,1.35, mW, 7,'x')# Index finger
+    cy(0.007,0.05,      0.89, 0.00,1.35, mW, 7,'x')# Middle finger
+    cy(0.007,0.05,      0.89,-0.02,1.35, mW, 7,'x')# Ring finger
+    cy(0.007,0.04,      0.85, 0.00,1.31, mW, 7,'z')# Thumb
 
-    # Right arm
-    sp(0.06,           -0.25, 0.00,1.35, mC, 8)   # Shoulder
-    cy(0.045,0.25,     -0.425,0.00,1.35, mW, 8,'x')# UpperArm
-    sp(0.05,           -0.58, 0.00,1.35, mC, 9)   # Elbow
-    cy(0.038,0.22,     -0.72, 0.00,1.35, mC, 9,'x')# Forearm
-    bx(0.06,0.06,0.02, -0.85, 0.00,1.35, mC,10)   # Hand
+    # Right arm (White segments, Cyan joints & hand/fingers)
+    sp(0.055,          -0.25, 0.00,1.35, mC, 8)   # Shoulder
+    cy(0.04,0.24,      -0.40, 0.00,1.35, mW, 8,'x')# UpperArm
+    sp(0.048,          -0.58, 0.00,1.35, mC, 9)   # Elbow
+    cy(0.035,0.22,     -0.72, 0.00,1.35, mW, 9,'x')# Forearm
+    bx(0.06,0.08,0.016,-0.85, 0.00,1.35, mC,10)   # Hand palm
+    # Right fingers
+    cy(0.007,0.05,     -0.89, 0.02,1.35, mW,10,'x')# Index finger
+    cy(0.007,0.05,     -0.89, 0.00,1.35, mW,10,'x')# Middle finger
+    cy(0.007,0.05,     -0.89,-0.02,1.35, mW,10,'x')# Ring finger
+    cy(0.007,0.04,     -0.85, 0.00,1.31, mW,10,'z')# Thumb
 
-    # Left leg
-    sp(0.06,            0.12, 0.00,0.70, mC,11)   # Hip
-    cy(0.055,0.30,      0.12, 0.00,0.50, mW,11)   # UpperLeg
-    sp(0.05,            0.12, 0.00,0.32, mC,12)   # Knee
-    cy(0.045,0.32,      0.12, 0.00,0.12, mC,12)   # LowerLeg
-    bx(0.08,0.16,0.04,  0.12,-0.04,-0.06,mC,12)   # Foot
+    # Left leg (White thigh/shin, Cyan joints & foot)
+    sp(0.055,           0.12, 0.00,0.70, mC,11)   # Hip joint
+    cy(0.05,0.28,       0.12, 0.00,0.51, mW,11)   # UpperLeg (Thigh)
+    sp(0.048,           0.12, 0.00,0.32, mC,12)   # Knee joint
+    cy(0.04,0.28,       0.12, 0.00,0.16, mW,12)   # LowerLeg (Shin)
+    sp(0.035,           0.12, 0.00,0.00, mC,12)   # Ankle joint
+    bx(0.07,0.16,0.03,  0.12, 0.04,-0.04,mC,12)   # Foot
 
-    # Right leg
-    sp(0.06,           -0.12, 0.00,0.70, mC,13)   # Hip
-    cy(0.055,0.30,     -0.12, 0.00,0.50, mW,13)   # UpperLeg
-    sp(0.05,           -0.12, 0.00,0.32, mC,14)   # Knee
-    cy(0.045,0.32,     -0.12, 0.00,0.12, mC,14)   # LowerLeg
-    bx(0.08,0.16,0.04, -0.12,-0.04,-0.06,mC,14)   # Foot
+    # Right leg (White thigh/shin, Cyan joints & foot)
+    sp(0.055,          -0.12, 0.00,0.70, mC,13)   # Hip joint
+    cy(0.05,0.28,      -0.12, 0.00,0.51, mW,13)   # UpperLeg (Thigh)
+    sp(0.048,          -0.12, 0.00,0.32, mC,14)   # Knee joint
+    cy(0.04,0.28,      -0.12, 0.00,0.16, mW,14)   # LowerLeg (Shin)
+    sp(0.035,          -0.12, 0.00,0.00, mC,14)   # Ankle joint
+    bx(0.07,0.16,0.03, -0.12, 0.04,-0.04,mC,14)   # Foot
 
     return parts
 
