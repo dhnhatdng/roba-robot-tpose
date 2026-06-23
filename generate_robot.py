@@ -13,7 +13,8 @@ Usage:
     python generate_robot.py
 """
 
-import os, math
+import os
+import math
 import numpy as np
 import pygltflib
 from pygltflib import (
@@ -25,8 +26,12 @@ from pygltflib import (
 )
 
 # ── Colour palette ────────────────────────────────────────────────────────────
-WHITE  = [0.900, 0.900, 0.900, 1.0]   # White/Light Gray body plating
-CYAN   = [0.000, 0.850, 1.000, 1.0]   # Accent color (Cyan) on joints, chest, visor
+# Metallic grey PBR materials
+# baseColorFactor: [R, G, B, A]
+# Slight color variation: torso/head slightly lighter than limbs, joints darker.
+COLOR_TORSO  = [0.70, 0.70, 0.75, 1.0] # lighter grey
+COLOR_LIMBS  = [0.62, 0.62, 0.67, 1.0] # neutral grey
+COLOR_JOINTS = [0.55, 0.55, 0.60, 1.0] # darker grey
 
 # ── Low-level geometry primitives ────────────────────────────────────────────
 
@@ -101,7 +106,7 @@ def _sphere(radius=0.10, lat=8, lon=12):
     for i in range(lat):
         for j in range(lon):
             a = i*lon+j; b = a+lon
-            c = i*lon+(j+1)%lon; d = b+(lon if(j+1)<lon else -lon*(lon-1))
+            c = i*lon+(j+1)%lon
             d = i*lon+(j+1)%lon+lon
             tris += [a,b,c, b,d,c]
     return (np.array(verts,dtype=np.float32),
@@ -113,7 +118,7 @@ def _sphere(radius=0.10, lat=8, lon=12):
 class Builder:
     def __init__(self):
         g = GLTF2()
-        g.asset = Asset(version="2.0", generator="roba-tpose-gen")
+        g.asset = Asset(version="2.0", generator="roba-tpose-gen-yup")
         g.scene = 0
         g.scenes = [Scene(nodes=[])]
         g.nodes, g.meshes, g.materials = [], [], []
@@ -137,12 +142,12 @@ class Builder:
         if mx is not None: a.max=[float(v) for v in mx]
         i = len(self.g.accessors); self.g.accessors.append(a); return i
 
-    def mat(self, color):
+    def mat(self, color, metallic=0.6, roughness=0.4):
         m = Material()
         m.pbrMetallicRoughness = pygltflib.PbrMetallicRoughness(
             baseColorFactor=color,
-            metallicFactor =0.3,
-            roughnessFactor=0.4)
+            metallicFactor =metallic,
+            roughnessFactor=roughness)
         i = len(self.g.materials); self.g.materials.append(m); return i
 
     def mesh_with_primitives(self, prims_data):
@@ -190,71 +195,97 @@ class Builder:
 
 # ── Robot geometry parts definition ──────────────────────────────────────────
 
-# ── Robot geometry parts definition ──────────────────────────────────────────
-
-def get_geometry_parts(mW, mC):
+def get_geometry_parts(mT, mL, mJ):
     parts = []
     
-    def bx(w,h,d, tx,ty,tz, m, bi):
-        p,n,i=_box(w,h,d)
-        p+=np.array([tx,ty,tz],dtype=np.float32); parts.append((p,n,i,m,bi))
-    def cy(r,h, tx,ty,tz, m, bi, ax='y'):
-        p,n,i=_cylinder(r,h,axis=ax)
-        p+=np.array([tx,ty,tz],dtype=np.float32); parts.append((p,n,i,m,bi))
-    def sp(r, tx,ty,tz, m, bi):
-        p,n,i=_sphere(r)
-        p+=np.array([tx,ty,tz],dtype=np.float32); parts.append((p,n,i,m,bi))
+    def bx(w, h, d, tx, ty, tz, m, bi):
+        p, n, i = _box(w, h, d)
+        p += np.array([tx, ty, tz], dtype=np.float32)
+        parts.append((p, n, i, m, bi))
+        
+    def cy(r, h, tx, ty, tz, m, bi, ax='y'):
+        p, n, i = _cylinder(r, h, axis=ax)
+        p += np.array([tx, ty, tz], dtype=np.float32)
+        parts.append((p, n, i, m, bi))
+        
+    def sp(r, tx, ty, tz, m, bi):
+        p, n, i = _sphere(r)
+        p += np.array([tx, ty, tz], dtype=np.float32)
+        parts.append((p, n, i, m, bi))
 
-    # Torso (White upper/lower chest, Cyan waist, Cyan pelvis) - Unitree H1 style
-    bx(0.38,0.24,0.28,  0.00, 0.00,1.32, mW, 2)   # Upper Chest
-    bx(0.32,0.20,0.22,  0.00, 0.00,1.10, mW, 2)   # Lower Chest/Belly
-    cy(0.07,0.12,       0.00, 0.00,0.925,mC, 1)   # Waist cylinder (Cyan)
-    bx(0.32,0.18,0.12,  0.00, 0.00,0.79, mC, 0)   # Pelvis (Cyan)
+    # 1. Pelvis block (skinned to root=0)
+    bx(0.26, 0.12, 0.16,  0.0, 1.04, 0.0, mT, 0)
+    
+    # 2. Waist cylinder (skinned to spine=1)
+    cy(0.06, 0.08,  0.0, 1.10, 0.0, mJ, 1, 'y')
+    
+    # 3. rounded torso (0.32×0.38×0.18m) (skinned to chest=2)
+    bx(0.32, 0.38, 0.18,  0.0, 1.29, 0.0, mT, 2)
+    
+    # 4. Chest plate (skinned to chest=2)
+    bx(0.26, 0.22, 0.03,  0.0, 1.35, 0.09, mJ, 2)
+    
+    # 5. Cylindrical neck (skinned to neck=3)
+    cy(0.045, 0.10,  0.0, 1.53, 0.0, mJ, 3, 'y')
+    
+    # 6. Helmet-style head base (skinned to head=4)
+    cy(0.10, 0.14,  0.0, 1.68, 0.0, mT, 4, 'y')
+    # 7. Head dome cap (skinned to head=4)
+    sp(0.10,  0.0, 1.75, 0.0, mT, 4)
+    # 8. Visor (skinned to head=4)
+    bx(0.16, 0.06, 0.03,  0.0, 1.68, 0.09, mJ, 4)
 
-    # Head (White helmet, Cyan face visor & neck) - Unitree H1 style
-    cy(0.045,0.10,      0.00, 0.00,1.54, mC, 3,'y')# Neck (Cyan)
-    sp(0.14,            0.00, 0.00,1.68, mW, 4)    # Head sphere (White)
-    bx(0.18,0.06,0.16,  0.00,-0.09,1.66, mC, 4)   # Face Visor/Shield (Cyan)
+    # Left Arm
+    # 9. Shoulder cap (skinned to l_shoulder=5)
+    sp(0.06,  0.22, 1.40, 0.0, mJ, 5)
+    # 10. Upper arm cylinder (skinned to l_shoulder=5)
+    cy(0.05, 0.24,  0.37, 1.40, 0.0, mL, 5, 'x')
+    # 11. Elbow joint (skinned to l_elbow=6)
+    sp(0.05,  0.52, 1.40, 0.0, mJ, 6)
+    # 12. Forearm cylinder (skinned to l_elbow=6)
+    cy(0.045, 0.20,  0.645, 1.40, 0.0, mL, 6, 'x')
+    # 13. Flat hand block (skinned to l_hand=7)
+    bx(0.10, 0.02, 0.08,  0.795, 1.40, 0.0, mJ, 7)
 
-    # Left arm (White segments, Cyan joints & hand/fingers)
-    sp(0.055,           0.25, 0.00,1.35, mC, 5)   # Shoulder
-    cy(0.04,0.24,       0.40, 0.00,1.35, mW, 5,'x')# UpperArm
-    sp(0.048,           0.58, 0.00,1.35, mC, 6)   # Elbow
-    cy(0.035,0.22,      0.72, 0.00,1.35, mW, 6,'x')# Forearm
-    bx(0.06,0.08,0.016, 0.85, 0.00,1.35, mC, 7)   # Hand palm
-    # Left fingers
-    cy(0.007,0.05,      0.89, 0.02,1.35, mW, 7,'x')# Index finger
-    cy(0.007,0.05,      0.89, 0.00,1.35, mW, 7,'x')# Middle finger
-    cy(0.007,0.05,      0.89,-0.02,1.35, mW, 7,'x')# Ring finger
-    cy(0.007,0.04,      0.85, 0.00,1.31, mW, 7,'z')# Thumb
+    # Right Arm
+    # 14. Shoulder cap (skinned to r_shoulder=8)
+    sp(0.06, -0.22, 1.40, 0.0, mJ, 8)
+    # 15. Upper arm cylinder (skinned to r_shoulder=8)
+    cy(0.05, 0.24, -0.37, 1.40, 0.0, mL, 8, 'x')
+    # 16. Elbow joint (skinned to r_elbow=9)
+    sp(0.05, -0.52, 1.40, 0.0, mJ, 9)
+    # 17. Forearm cylinder (skinned to r_elbow=9)
+    cy(0.045, 0.20, -0.645, 1.40, 0.0, mL, 9, 'x')
+    # 18. Flat hand block (skinned to r_hand=10)
+    bx(0.10, 0.02, 0.08, -0.795, 1.40, 0.0, mJ, 10)
 
-    # Right arm (White segments, Cyan joints & hand/fingers)
-    sp(0.055,          -0.25, 0.00,1.35, mC, 8)   # Shoulder
-    cy(0.04,0.24,      -0.40, 0.00,1.35, mW, 8,'x')# UpperArm
-    sp(0.048,          -0.58, 0.00,1.35, mC, 9)   # Elbow
-    cy(0.035,0.22,     -0.72, 0.00,1.35, mW, 9,'x')# Forearm
-    bx(0.06,0.08,0.016,-0.85, 0.00,1.35, mC,10)   # Hand palm
-    # Right fingers
-    cy(0.007,0.05,     -0.89, 0.02,1.35, mW,10,'x')# Index finger
-    cy(0.007,0.05,     -0.89, 0.00,1.35, mW,10,'x')# Middle finger
-    cy(0.007,0.05,     -0.89,-0.02,1.35, mW,10,'x')# Ring finger
-    cy(0.007,0.04,     -0.85, 0.00,1.31, mW,10,'z')# Thumb
+    # Left Leg
+    # 19. Hip cap (skinned to l_hip=11)
+    sp(0.06,  0.12, 0.98, 0.0, mJ, 11)
+    # 20. Upper leg cylinder (skinned to l_hip=11)
+    cy(0.05, 0.38,  0.12, 0.755, 0.0, mL, 11, 'y')
+    # 21. Knee joint (skinned to l_knee=12)
+    sp(0.05,  0.12, 0.53, 0.0, mJ, 12)
+    # 22. Lower leg cylinder (skinned to l_knee=12)
+    cy(0.045, 0.38,  0.12, 0.305, 0.0, mL, 12, 'y')
+    # 23. Ankle joint (skinned to l_foot=13)
+    sp(0.04,  0.12, 0.08, 0.0, mJ, 13)
+    # 24. Flat foot block (skinned to l_foot=13)
+    bx(0.08, 0.08, 0.20,  0.12, 0.04, 0.06, mJ, 13)
 
-    # Left leg (White thigh/shin, Cyan joints & foot)
-    sp(0.055,           0.12, 0.00,0.70, mC,11)   # Hip joint
-    cy(0.05,0.28,       0.12, 0.00,0.51, mW,11)   # UpperLeg (Thigh)
-    sp(0.048,           0.12, 0.00,0.32, mC,12)   # Knee joint
-    cy(0.04,0.28,       0.12, 0.00,0.16, mW,12)   # LowerLeg (Shin)
-    sp(0.035,           0.12, 0.00,0.00, mC,12)   # Ankle joint
-    bx(0.07,0.16,0.03,  0.12, 0.04,-0.04,mC,12)   # Foot
-
-    # Right leg (White thigh/shin, Cyan joints & foot)
-    sp(0.055,          -0.12, 0.00,0.70, mC,13)   # Hip joint
-    cy(0.05,0.28,      -0.12, 0.00,0.51, mW,13)   # UpperLeg (Thigh)
-    sp(0.048,          -0.12, 0.00,0.32, mC,14)   # Knee joint
-    cy(0.04,0.28,      -0.12, 0.00,0.16, mW,14)   # LowerLeg (Shin)
-    sp(0.035,          -0.12, 0.00,0.00, mC,14)   # Ankle joint
-    bx(0.07,0.16,0.03, -0.12, 0.04,-0.04,mC,14)   # Foot
+    # Right Leg
+    # 25. Hip cap (skinned to r_hip=14)
+    sp(0.06, -0.12, 0.98, 0.0, mJ, 14)
+    # 26. Upper leg cylinder (skinned to r_hip=14)
+    cy(0.05, 0.38, -0.12, 0.755, 0.0, mL, 14, 'y')
+    # 27. Knee joint (skinned to r_knee=15)
+    sp(0.05, -0.12, 0.53, 0.0, mJ, 15)
+    # 28. Lower leg cylinder (skinned to r_knee=15)
+    cy(0.045, 0.38, -0.12, 0.305, 0.0, mL, 15, 'y')
+    # 29. Ankle joint (skinned to r_foot=16)
+    sp(0.04, -0.12, 0.08, 0.0, mJ, 16)
+    # 30. Flat foot block (skinned to r_foot=16)
+    bx(0.08, 0.08, 0.20, -0.12, 0.04, 0.06, mJ, 16)
 
     return parts
 
@@ -262,118 +293,103 @@ def get_geometry_parts(mW, mC):
 
 def build_rigged(out_path):
     b = Builder()
-    mW = b.mat(WHITE); mC = b.mat(CYAN)
+    mT = b.mat(COLOR_TORSO); mL = b.mat(COLOR_LIMBS); mJ = b.mat(COLOR_JOINTS)
 
+    # 17-joint positions in world space
     BW = [
-        np.array([ 0.00, 0, 0.79 ]),   # 0  Hips
-        np.array([ 0.00, 0, 0.925]),   # 1  Spine
-        np.array([ 0.00, 0, 1.25 ]),   # 2  Chest
-        np.array([ 0.00, 0, 1.54 ]),   # 3  Neck
-        np.array([ 0.00, 0, 1.68 ]),   # 4  Head
-        np.array([ 0.25, 0, 1.35 ]),   # 5  L_Shoulder
-        np.array([ 0.58, 0, 1.35 ]),   # 6  L_Elbow
-        np.array([ 0.85, 0, 1.35 ]),   # 7  L_Wrist
-        np.array([-0.25, 0, 1.35 ]),   # 8  R_Shoulder
-        np.array([-0.58, 0, 1.35 ]),   # 9  R_Elbow
-        np.array([-0.85, 0, 1.35 ]),   # 10 R_Wrist
-        np.array([ 0.12, 0, 0.70 ]),   # 11 L_Hip
-        np.array([ 0.12, 0, 0.32 ]),   # 12 L_Knee
-        np.array([-0.12, 0, 0.70 ]),   # 13 R_Hip
-        np.array([-0.12, 0, 0.32 ]),   # 14 R_Knee
+        np.array([ 0.0,  1.04,  0.0 ]),   # 0  root (hips)
+        np.array([ 0.0,  1.15,  0.0 ]),   # 1  spine
+        np.array([ 0.0,  1.35,  0.0 ]),   # 2  chest
+        np.array([ 0.0,  1.53,  0.0 ]),   # 3  neck
+        np.array([ 0.0,  1.70,  0.0 ]),   # 4  head
+        np.array([ 0.22, 1.40,  0.0 ]),   # 5  l_shoulder
+        np.array([ 0.52, 1.40,  0.0 ]),   # 6  l_elbow
+        np.array([ 0.77, 1.40,  0.0 ]),   # 7  l_hand
+        np.array([-0.22, 1.40,  0.0 ]),   # 8  r_shoulder
+        np.array([-0.52, 1.40,  0.0 ]),   # 9  r_elbow
+        np.array([-0.77, 1.40,  0.0 ]),   # 10 r_hand
+        np.array([ 0.12, 0.98,  0.0 ]),   # 11 l_hip
+        np.array([ 0.12, 0.53,  0.0 ]),   # 12 l_knee
+        np.array([ 0.12, 0.08,  0.0 ]),   # 13 l_foot
+        np.array([-0.12, 0.98,  0.0 ]),   # 14 r_hip
+        np.array([-0.12, 0.53,  0.0 ]),   # 15 r_knee
+        np.array([-0.12, 0.08,  0.0 ]),   # 16 r_foot
     ]
-    NAMES  = ["Hips","Spine","Chest","Neck","Head",
-               "L_Shoulder","L_Elbow","L_Wrist",
-               "R_Shoulder","R_Elbow","R_Wrist",
-               "L_Hip","L_Knee","R_Hip","R_Knee"]
-    PARENT = [-1,0,1,2,3, 2,5,6, 2,8,9, 0,11, 0,13]
+    NAMES  = [
+        "root", "spine", "chest", "neck", "head",
+        "l_shoulder", "l_elbow", "l_hand",
+        "r_shoulder", "r_elbow", "r_hand",
+        "l_hip", "l_knee", "l_foot",
+        "r_hip", "r_knee", "r_foot"
+    ]
+    PARENT = [
+        -1, 0, 1, 2, 3,
+        2, 5, 6,
+        2, 8, 9,
+        0, 11, 12,
+        0, 14, 15
+    ]
 
     # Build bone nodes
     bone_ni = []
-    for i,name in enumerate(NAMES):
+    for i, name in enumerate(NAMES):
         p = PARENT[i]
-        lt = (BW[i]-BW[p]).tolist() if p!=-1 else BW[i].tolist()
+        lt = (BW[i] - BW[p]).tolist() if p != -1 else BW[i].tolist()
         bone_ni.append(b.node(name, t=lt))
 
     # Wire bone hierarchy
-    for i,p in enumerate(PARENT):
-        if p!=-1:
-            pn=b.g.nodes[bone_ni[p]]
-            if pn.children is None: pn.children=[]
+    for i, p in enumerate(PARENT):
+        if p != -1:
+            pn = b.g.nodes[bone_ni[p]]
+            if pn.children is None:
+                pn.children = []
             pn.children.append(bone_ni[i])
 
-    # Inverse bind matrices
-    ibms=[]
+    # Inverse bind matrices (column-major translation matrices)
+    ibms = []
     for wp in BW:
-        m=np.eye(4,dtype=np.float32); m[3,:3]=-wp; ibms.append(m)
-    skin_i = b.skin("Humanoid", bone_ni, ibms)
+        m = np.eye(4, dtype=np.float32)
+        m[3, :3] = -wp
+        ibms.append(m)
+    skin_i = b.skin("ArmatureSkin", bone_ni, ibms)
 
     # Get body parts
-    parts = get_geometry_parts(mW, mC)
+    parts = get_geometry_parts(mT, mL, mJ)
 
-    # Merge primitives grouped by material
-    prims_by_mat = {}
-    for pos, nor, idx, mat_idx, bi in parts:
-        if mat_idx not in prims_by_mat:
-            prims_by_mat[mat_idx] = {'pos':[], 'nor':[], 'idx':[], 'ji':[], 'jw':[], 'off':0}
-        
-        entry = prims_by_mat[mat_idx]
-        n = len(pos)
-        ji = np.zeros((n,4), dtype=np.uint8); ji[:,0] = bi
-        jw = np.zeros((n,4), dtype=np.float32); jw[:,0] = 1.0
-        
-        entry['pos'].append(pos)
-        entry['nor'].append(nor)
-        entry['idx'].append(idx + entry['off'])
-        entry['ji'].append(ji)
-        entry['jw'].append(jw)
-        entry['off'] += n
-
-    # Build GLB mesh primitives
+    # Generate 30 separate primitives (one primitive per body part geometry)
     prims_data = []
-    for mat_idx, data in prims_by_mat.items():
-        pos_merged = np.concatenate(data['pos'])
-        nor_merged = np.concatenate(data['nor'])
-        idx_merged = np.concatenate(data['idx'])
-        ji_merged = np.concatenate(data['ji'])
-        jw_merged = np.concatenate(data['jw'])
-        prims_data.append((pos_merged, nor_merged, idx_merged, mat_idx, ji_merged, jw_merged))
+    for pos, nor, idx, mat_idx, bi in parts:
+        n = len(pos)
+        ji = np.zeros((n, 4), dtype=np.uint8)
+        ji[:, 0] = bi
+        jw = np.zeros((n, 4), dtype=np.float32)
+        jw[:, 0] = 1.0
+        prims_data.append((pos, nor, idx, mat_idx, ji, jw))
 
     mesh_i = b.mesh_with_primitives(prims_data)
 
     # Scene graph connection
+    # To fix NODE_SKINNED_MESH_NON_ROOT, make the mesh node a root node alongside the armature root bone
     mesh_node = b.node("ROBA_Robot_Rigged_Mesh", mesh=mesh_i, skin=skin_i)
-    root_node = b.node("Armature", children=[bone_ni[0], mesh_node])
-    b.g.scenes[0].nodes = [root_node]
+    
+    # Scene has two root nodes: the armature root (root) and the skinned mesh node
+    b.g.scenes[0].nodes = [bone_ni[0], mesh_node]
 
+    # Save to destination path
     b.save(out_path)
 
 
 def build_static(out_path):
     b = Builder()
-    mW = b.mat(WHITE); mC = b.mat(CYAN)
+    mT = b.mat(COLOR_TORSO); mL = b.mat(COLOR_LIMBS); mJ = b.mat(COLOR_JOINTS)
 
-    parts = get_geometry_parts(mW, mC)
-
-    # Merge primitives grouped by material (no joint bindings needed)
-    prims_by_mat = {}
-    for pos, nor, idx, mat_idx, _ in parts:
-        if mat_idx not in prims_by_mat:
-            prims_by_mat[mat_idx] = {'pos':[], 'nor':[], 'idx':[], 'off':0}
-        
-        entry = prims_by_mat[mat_idx]
-        n = len(pos)
-        entry['pos'].append(pos)
-        entry['nor'].append(nor)
-        entry['idx'].append(idx + entry['off'])
-        entry['off'] += n
+    # Get body parts
+    parts = get_geometry_parts(mT, mL, mJ)
 
     # Build GLB mesh primitives without skin weight attributes
     prims_data = []
-    for mat_idx, data in prims_by_mat.items():
-        pos_merged = np.concatenate(data['pos'])
-        nor_merged = np.concatenate(data['nor'])
-        idx_merged = np.concatenate(data['idx'])
-        prims_data.append((pos_merged, nor_merged, idx_merged, mat_idx, None, None))
+    for pos, nor, idx, mat_idx, _ in parts:
+        prims_data.append((pos, nor, idx, mat_idx, None, None))
 
     mesh_i = b.mesh_with_primitives(prims_data)
 
@@ -400,5 +416,3 @@ if __name__ == "__main__":
     build_static(os.path.join(out_dir, "ROBA_static.glb"))
     
     print("\n* All GLB models generated successfully!")
-    print("* Note: To obtain FBX versions, run the included Blender script:")
-    print("  blender --background --python roba_robot_blender_script.py\n")
